@@ -1,0 +1,6 @@
+<launch>
+  <node pkg="VO_ORB" type="vo_orb_rgbd" name="ORB2_RGBD" args="$(env ORB_PATH)/Vocabulary/ORBvoc.txt $(find VO_ORB)/config/r200.yaml">
+    <remap from="/camera/rgb/image_raw" to="/camera/rgb/image_rect_color" />
+    <remap from="/camera/depth_registered/image_raw" to="/camera/depth_registered/sw_registered/image_rect" />
+  </node>
+</launch>
