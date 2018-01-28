@@ -24,11 +24,12 @@
 #include<fstream>
 #include<chrono>
 
-#include<ros/ros.h>
+#include <ros/ros.h>
 #include <cv_bridge/cv_bridge.h>
 #include <message_filters/subscriber.h>
 #include <message_filters/time_synchronizer.h>
 #include <message_filters/sync_policies/approximate_time.h>
+#include <tf/transform_broadcaster.h>
 
 #include<opencv2/core/core.hpp>
 
@@ -39,11 +40,15 @@ using namespace std;
 class ImageGrabber
 {
 public:
-    ImageGrabber(ORB_SLAM2::System* pSLAM):mpSLAM(pSLAM){}
+    ImageGrabber(ORB_SLAM2::System* pSLAM);
 
     void GrabRGBD(const sensor_msgs::ImageConstPtr& msgRGB,const sensor_msgs::ImageConstPtr& msgD);
 
     ORB_SLAM2::System* mpSLAM;
+    
+    tf::TransformBroadcaster mtfBroadcaster;
+    std::string mStrWorldFrameId;
+    std::string mStrCameraFrameId;
 };
 
 int main(int argc, char **argv)
@@ -63,10 +68,10 @@ int main(int argc, char **argv)
 
     ImageGrabber igb(&SLAM);
 
-    ros::NodeHandle nh;
+    ros::NodeHandle nh("~");
 
     message_filters::Subscriber<sensor_msgs::Image> rgb_sub(nh, "/camera/rgb/image_raw", 1);
-    message_filters::Subscriber<sensor_msgs::Image> depth_sub(nh, "camera/depth_registered/image_raw", 1);
+    message_filters::Subscriber<sensor_msgs::Image> depth_sub(nh, "/camera/depth_registered/image_raw", 1);
     typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::Image> sync_pol;
     message_filters::Synchronizer<sync_pol> sync(sync_pol(10), rgb_sub,depth_sub);
     sync.registerCallback(boost::bind(&ImageGrabber::GrabRGBD,&igb,_1,_2));
@@ -82,6 +87,12 @@ int main(int argc, char **argv)
     ros::shutdown();
 
     return 0;
+}
+ 
+ImageGrabber::ImageGrabber(ORB_SLAM2::System* pSLAM) : mpSLAM(pSLAM)
+{
+    ros::param::param<std::string>("~world_frame",   mStrWorldFrameId, "orb_world");
+    ros::param::param<std::string>("~camera_frame",   mStrCameraFrameId, "orb_camera");
 }
 
 void ImageGrabber::GrabRGBD(const sensor_msgs::ImageConstPtr& msgRGB,const sensor_msgs::ImageConstPtr& msgD)
@@ -109,7 +120,24 @@ void ImageGrabber::GrabRGBD(const sensor_msgs::ImageConstPtr& msgRGB,const senso
         return;
     }
 
-    mpSLAM->TrackRGBD(cv_ptrRGB->image,cv_ptrD->image,cv_ptrRGB->header.stamp.toSec());
+    cv::Mat T_cam_world = mpSLAM->TrackRGBD(cv_ptrRGB->image,cv_ptrD->image,cv_ptrRGB->header.stamp.toSec());
+
+    if (!T_cam_world.empty())
+    {
+        tf::Transform transform_cam_world;
+        transform_cam_world.setOrigin(tf::Vector3(
+            T_cam_world.at<float>(0, 3), T_cam_world.at<float>(1, 3), T_cam_world.at<float>(2, 3)
+        ));
+        transform_cam_world.setBasis(tf::Matrix3x3(
+           T_cam_world.at<float>(0, 0), T_cam_world.at<float>(0, 1), T_cam_world.at<float>(0, 2),
+           T_cam_world.at<float>(1, 0), T_cam_world.at<float>(1, 1), T_cam_world.at<float>(1, 2),
+           T_cam_world.at<float>(2, 0), T_cam_world.at<float>(2, 1), T_cam_world.at<float>(2, 2)   
+        ));
+
+        mtfBroadcaster.sendTransform(tf::StampedTransform(
+            transform_cam_world, ros::Time::now(), mStrCameraFrameId, mStrWorldFrameId
+        ));
+    }
 }
 
 
