@@ -30,16 +30,18 @@
 #include <message_filters/time_synchronizer.h>
 #include <message_filters/sync_policies/approximate_time.h>
 #include <tf/transform_broadcaster.h>
+#include <tf/transform_listener.h>
 
-#include<opencv2/core/core.hpp>
+#include <opencv2/core/core.hpp>
 
-#include"include/System.h"
+#include "include/System.h"
 
 using namespace std;
 
 class ImageGrabber
 {
 public:
+    typedef ORB_SLAM2::Tracking::eTrackingState eTrackingState;
     ImageGrabber(ORB_SLAM2::System* pSLAM);
 
     void GrabRGBD(const sensor_msgs::ImageConstPtr& msgRGB,const sensor_msgs::ImageConstPtr& msgD);
@@ -47,8 +49,16 @@ public:
     ORB_SLAM2::System* mpSLAM;
     
     tf::TransformBroadcaster mtfBroadcaster;
+    tf::TransformListener mtfListener;
+    /**! Transformation used to setup the transform of ORBSLAM, for better visualization **/
+    tf::Transform mTransform_odom_world;
+    
     std::string mStrWorldFrameId;
     std::string mStrCameraFrameId;
+    std::string mStrBaseLinkFrameId;
+    std::string mStrOdomFrameId;
+
+    eTrackingState mLastTrackingState;
 };
 
 int main(int argc, char **argv)
@@ -89,10 +99,14 @@ int main(int argc, char **argv)
     return 0;
 }
  
-ImageGrabber::ImageGrabber(ORB_SLAM2::System* pSLAM) : mpSLAM(pSLAM)
+ImageGrabber::ImageGrabber(ORB_SLAM2::System* pSLAM) : mpSLAM(pSLAM), mLastTrackingState(eTrackingState::SYSTEM_NOT_READY)
 {
-    ros::param::param<std::string>("~world_frame",   mStrWorldFrameId, "orb_world");
-    ros::param::param<std::string>("~camera_frame",   mStrCameraFrameId, "orb_camera");
+    ros::param::param<std::string>("~world_frame",      mStrWorldFrameId,       "orb_world");
+    ros::param::param<std::string>("~camera_frame",     mStrCameraFrameId,      "orb_camera");
+    ros::param::param<std::string>("~baselink_frame",   mStrBaseLinkFrameId,    "base_link");
+    ros::param::param<std::string>("~odom_frame",       mStrOdomFrameId,        "wheelodom");
+
+    mTransform_odom_world.setIdentity();
 }
 
 void ImageGrabber::GrabRGBD(const sensor_msgs::ImageConstPtr& msgRGB,const sensor_msgs::ImageConstPtr& msgD)
@@ -122,9 +136,9 @@ void ImageGrabber::GrabRGBD(const sensor_msgs::ImageConstPtr& msgRGB,const senso
 
     cv::Mat T_cam_world = mpSLAM->TrackRGBD(cv_ptrRGB->image,cv_ptrD->image,cv_ptrRGB->header.stamp.toSec());
 
+    tf::Transform transform_cam_world;
     if (!T_cam_world.empty())
     {
-        tf::Transform transform_cam_world;
         transform_cam_world.setOrigin(tf::Vector3(
             T_cam_world.at<float>(0, 3), T_cam_world.at<float>(1, 3), T_cam_world.at<float>(2, 3)
         ));
@@ -133,11 +147,36 @@ void ImageGrabber::GrabRGBD(const sensor_msgs::ImageConstPtr& msgRGB,const senso
            T_cam_world.at<float>(1, 0), T_cam_world.at<float>(1, 1), T_cam_world.at<float>(1, 2),
            T_cam_world.at<float>(2, 0), T_cam_world.at<float>(2, 1), T_cam_world.at<float>(2, 2)   
         ));
-
-        mtfBroadcaster.sendTransform(tf::StampedTransform(
-            transform_cam_world, ros::Time::now(), mStrCameraFrameId, mStrWorldFrameId
-        ));
     }
+
+    // when there is transition from not okay to okay, get the current odometry tf to set the coordinate frame of the map
+    auto currentTrackingState = (eTrackingState)mpSLAM->GetTrackingState();
+    if (mLastTrackingState != eTrackingState::OK && currentTrackingState == eTrackingState::OK)
+    {
+        tf::StampedTransform transform_odom_base;
+        transform_odom_base.setIdentity();
+        try
+        {
+          mtfListener.lookupTransform(mStrBaseLinkFrameId, mStrOdomFrameId,  
+                                   ros::Time(0), transform_odom_base);
+        }
+        catch (tf::TransformException ex){
+          ROS_ERROR("%s",ex.what());
+          // ros::Duration(1.0).sleep();
+        }
+
+        mTransform_odom_world = transform_odom_base * transform_cam_world;
+    }
+
+    mtfBroadcaster.sendTransform(tf::StampedTransform(
+        transform_cam_world.inverse(), ros::Time::now(), mStrWorldFrameId, mStrCameraFrameId
+    ));
+
+    mtfBroadcaster.sendTransform(tf::StampedTransform(
+        mTransform_odom_world, ros::Time::now(), mStrOdomFrameId, mStrWorldFrameId
+    ));
+
+    mLastTrackingState = currentTrackingState;
 }
 
 
