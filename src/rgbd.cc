@@ -229,9 +229,9 @@ tf::StampedTransform ImageGrabber::broadcastTfs(cv::Mat T_cam_world)
         
         try
         {
-            mtfListener.waitForTransform(mStrBaseLinkFrameId, mStrOdomFrameId,
+            mtfListener.waitForTransform(mStrOdomFrameId, mStrBaseLinkFrameId,
                                       ros::Time::now(), ros::Duration(1.0));
-            mtfListener.lookupTransform(mStrBaseLinkFrameId, mStrOdomFrameId,  
+            mtfListener.lookupTransform(mStrOdomFrameId, mStrBaseLinkFrameId,
                                         ros::Time(0), transform_odom_base);
         }
         catch (tf::TransformException ex)
