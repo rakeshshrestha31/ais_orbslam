@@ -130,7 +130,7 @@ ImageGrabber::ImageGrabber(ORB_SLAM2::System* pSLAM, ros::NodeHandle nh) :
 {
     ros::param::param<std::string>("~world_frame",      mStrWorldFrameId,       "orb_world");
     ros::param::param<std::string>("~camera_frame",     mStrCameraFrameId,      "orb_camera");
-    ros::param::param<std::string>("~baselink_frame",   mStrBaseLinkFrameId,    "base_link");
+    ros::param::param<std::string>("~baselink_frame",   mStrBaseLinkFrameId,    "base_footprint");
     ros::param::param<std::string>("~odom_frame",       mStrOdomFrameId,        "wheelodom");
 
     ros::param::param<std::string>("~cameralink_frame",         mStrCameraLinkId,           "camera_link");
@@ -229,6 +229,8 @@ tf::StampedTransform ImageGrabber::broadcastTfs(cv::Mat T_cam_world)
         
         try
         {
+            mtfListener.waitForTransform(mStrBaseLinkFrameId, mStrOdomFrameId,
+                                      ros::Time::now(), ros::Duration(1.0));
             mtfListener.lookupTransform(mStrBaseLinkFrameId, mStrOdomFrameId,  
                                         ros::Time(0), transform_odom_base);
         }
@@ -237,15 +239,29 @@ tf::StampedTransform ImageGrabber::broadcastTfs(cv::Mat T_cam_world)
 
             ROS_ERROR("%s", ex.what());
         }
-        // TODO: don't assume camera link and base link to be the same
-        transform_base_cam = transform_camlink_cam;
+
+        try
+        {
+            mtfListener.waitForTransform(mStrBaseLinkFrameId, mStrCameraOpticalFrameId,
+                                      ros::Time::now(), ros::Duration(1.0));
+            mtfListener.lookupTransform(mStrBaseLinkFrameId, mStrCameraOpticalFrameId,  
+                                        ros::Time(0), transform_base_cam);
+        }
+        catch (tf::TransformException ex)
+        {
+
+            ROS_ERROR("%s", ex.what());
+        }
 
         mTransform_odom_world = transform_odom_base * transform_base_cam * transform_cam_world;
     }
 
     tf::Transform transform_world_camlink = transform_cam_world.inverse() * transform_camlink_cam.inverse();
+    // tf::StampedTransform stampedTransform_world_cam = tf::StampedTransform(
+    //     transform_world_camlink, ros::Time::now(), mStrWorldFrameId, mStrCameraFrameId
+    // );
     tf::StampedTransform stampedTransform_world_cam = tf::StampedTransform(
-        transform_world_camlink, ros::Time::now(), mStrWorldFrameId, mStrCameraFrameId
+        transform_cam_world.inverse(), ros::Time::now(), mStrWorldFrameId, mStrCameraFrameId
     );
     mtfBroadcaster.sendTransform(stampedTransform_world_cam);
 
