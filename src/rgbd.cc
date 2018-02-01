@@ -58,6 +58,10 @@ public:
     std::string mStrBaseLinkFrameId;
     std::string mStrOdomFrameId;
 
+    // the transforms published by camera driver
+    std::string mStrCameraLinkId;
+    std::string mStrCameraOpticalFrameId;
+
     eTrackingState mLastTrackingState;
 };
 
@@ -105,6 +109,9 @@ ImageGrabber::ImageGrabber(ORB_SLAM2::System* pSLAM) : mpSLAM(pSLAM), mLastTrack
     ros::param::param<std::string>("~camera_frame",     mStrCameraFrameId,      "orb_camera");
     ros::param::param<std::string>("~baselink_frame",   mStrBaseLinkFrameId,    "base_link");
     ros::param::param<std::string>("~odom_frame",       mStrOdomFrameId,        "wheelodom");
+
+    ros::param::param<std::string>("~cameralink_frame",         mStrCameraLinkId,           "camera_link");
+    ros::param::param<std::string>("~cameraopticallink_frame",  mStrCameraOpticalFrameId,   "camera_rgb_optical_frame");
 
     mTransform_odom_world.setIdentity();
 }
@@ -155,17 +162,34 @@ void ImageGrabber::GrabRGBD(const sensor_msgs::ImageConstPtr& msgRGB,const senso
     {
         tf::StampedTransform transform_odom_base;
         transform_odom_base.setIdentity();
+
+        tf::StampedTransform transfrom_base_cam;
+        transfrom_base_cam.setIdentity();
+        
         try
         {
-          mtfListener.lookupTransform(mStrBaseLinkFrameId, mStrOdomFrameId,  
-                                   ros::Time(0), transform_odom_base);
+            mtfListener.lookupTransform(mStrBaseLinkFrameId, mStrOdomFrameId,  
+                                        ros::Time(0), transform_odom_base);
         }
-        catch (tf::TransformException ex){
-          ROS_ERROR("%s",ex.what());
-          // ros::Duration(1.0).sleep();
+        catch (tf::TransformException ex)
+        {
+
+            ROS_ERROR("%s", ex.what());
         }
 
-        mTransform_odom_world = transform_odom_base * transform_cam_world;
+        try
+        {
+            // TODO: don't assume camera link and base link to be the same
+            mtfListener.lookupTransform(mStrCameraLinkId, mStrCameraOpticalFrameId, 
+                                        ros::Time(0), transfrom_base_cam);
+        }
+        catch (tf::TransformException ex)
+        {
+
+            ROS_ERROR("%s", ex.what());
+        }
+
+        mTransform_odom_world = transform_odom_base * transfrom_base_cam * transform_cam_world;
     }
 
     mtfBroadcaster.sendTransform(tf::StampedTransform(
