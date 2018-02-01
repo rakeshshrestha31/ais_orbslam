@@ -189,6 +189,10 @@ void ImageGrabber::GrabRGBD(const sensor_msgs::ImageConstPtr& msgRGB,const senso
 tf::StampedTransform ImageGrabber::broadcastTfs(cv::Mat T_cam_world)
 {
     tf::Transform transform_cam_world;
+
+    tf::StampedTransform transform_camlink_cam;
+    transform_camlink_cam.setIdentity();
+
     if (!T_cam_world.empty())
     {
         transform_cam_world.setOrigin(tf::Vector3(
@@ -201,6 +205,18 @@ tf::StampedTransform ImageGrabber::broadcastTfs(cv::Mat T_cam_world)
         ));
     }
 
+    try
+    {
+        mtfListener.lookupTransform(mStrCameraLinkId, mStrCameraOpticalFrameId, 
+                                    ros::Time(0), transform_camlink_cam);
+        
+    }
+    catch (tf::TransformException ex)
+    {
+
+        ROS_ERROR("%s", ex.what());
+    }
+
     // when there is transition from not okay to okay, get the current odometry tf to set the coordinate frame of the map
     auto currentTrackingState = (eTrackingState)mpSLAM->GetTrackingState();
     if (mLastTrackingState != eTrackingState::OK && currentTrackingState == eTrackingState::OK)
@@ -208,8 +224,8 @@ tf::StampedTransform ImageGrabber::broadcastTfs(cv::Mat T_cam_world)
         tf::StampedTransform transform_odom_base;
         transform_odom_base.setIdentity();
 
-        tf::StampedTransform transfrom_base_cam;
-        transfrom_base_cam.setIdentity();
+        tf::StampedTransform transform_base_cam;
+        transform_base_cam.setIdentity();
         
         try
         {
@@ -221,24 +237,15 @@ tf::StampedTransform ImageGrabber::broadcastTfs(cv::Mat T_cam_world)
 
             ROS_ERROR("%s", ex.what());
         }
+        // TODO: don't assume camera link and base link to be the same
+        transform_base_cam = transform_camlink_cam;
 
-        try
-        {
-            // TODO: don't assume camera link and base link to be the same
-            mtfListener.lookupTransform(mStrCameraLinkId, mStrCameraOpticalFrameId, 
-                                        ros::Time(0), transfrom_base_cam);
-        }
-        catch (tf::TransformException ex)
-        {
-
-            ROS_ERROR("%s", ex.what());
-        }
-
-        mTransform_odom_world = transform_odom_base * transfrom_base_cam * transform_cam_world;
+        mTransform_odom_world = transform_odom_base * transform_base_cam * transform_cam_world;
     }
 
+    tf::Transform transform_world_camlink = transform_cam_world.inverse() * transform_camlink_cam.inverse();
     tf::StampedTransform stampedTransform_world_cam = tf::StampedTransform(
-        transform_cam_world.inverse(), ros::Time::now(), mStrWorldFrameId, mStrCameraFrameId
+        transform_world_camlink, ros::Time::now(), mStrWorldFrameId, mStrCameraFrameId
     );
     mtfBroadcaster.sendTransform(stampedTransform_world_cam);
 
