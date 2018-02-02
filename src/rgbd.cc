@@ -136,8 +136,8 @@ ImageGrabber::ImageGrabber(ORB_SLAM2::System* pSLAM, ros::NodeHandle nh) :
     ros::param::param<std::string>("~cameralink_frame",         mStrCameraLinkId,           "camera_link");
     ros::param::param<std::string>("~cameraopticallink_frame",  mStrCameraOpticalFrameId,   "camera_rgb_optical_frame");
 
-    ros::param::param<double>("~pose_position_variance",        mnPosePositionVariance,     9999.0);
-    ros::param::param<double>("~pose_orientation_variance",     mnPoseOrientationVariance,  9999.0);
+    ros::param::param<double>("~pose_position_variance",        mnPosePositionVariance,     9.0);
+    ros::param::param<double>("~pose_orientation_variance",     mnPoseOrientationVariance,  9.0);
     ros::param::param<double>("~twist_position_variance",       mnPosePositionVariance,     9999999.0);
     ros::param::param<double>("~twist_orientation_variance",    mnPoseOrientationVariance,  9999999.0);
 
@@ -172,10 +172,20 @@ void ImageGrabber::GrabRGBD(const sensor_msgs::ImageConstPtr& msgRGB,const senso
     }
 
     cv::Mat T_cam_world = mpSLAM->TrackRGBD(cv_ptrRGB->image,cv_ptrD->image,cv_ptrRGB->header.stamp.toSec());
-    auto stampedTransform_world_cam = broadcastTfs(T_cam_world);
-    
     auto currentTrackingState = (eTrackingState)mpSLAM->GetTrackingState();
     
+    if (currentTrackingState != eTrackingState::OK)
+    {
+        return;
+    }
+    if (currentTrackingState == eTrackingState::LOST)
+    {
+        mpSLAM->Reset();
+        return;
+    }
+
+    auto stampedTransform_world_cam = broadcastTfs(T_cam_world);
+        
     // publish the odom topic
     if (mLastTrackingState == eTrackingState::OK && currentTrackingState == eTrackingState::OK)
     {
@@ -186,29 +196,29 @@ void ImageGrabber::GrabRGBD(const sensor_msgs::ImageConstPtr& msgRGB,const senso
     mLastTrackingState = currentTrackingState;
 }
 
-tf::StampedTransform ImageGrabber::broadcastTfs(cv::Mat T_cam_world)
+tf::StampedTransform ImageGrabber::broadcastTfs(cv::Mat T_camoptical_worldoptical)
 {
-    tf::Transform transform_cam_world;
+    tf::Transform transform_camoptical_worldoptical;
 
-    tf::StampedTransform transform_camlink_cam;
-    transform_camlink_cam.setIdentity();
+    tf::StampedTransform transform_camlink_camoptical;
+    transform_camlink_camoptical.setIdentity();
 
-    if (!T_cam_world.empty())
+    if (!T_camoptical_worldoptical.empty())
     {
-        transform_cam_world.setOrigin(tf::Vector3(
-            T_cam_world.at<float>(0, 3), T_cam_world.at<float>(1, 3), T_cam_world.at<float>(2, 3)
+        transform_camoptical_worldoptical.setOrigin(tf::Vector3(
+            T_camoptical_worldoptical.at<float>(0, 3), T_camoptical_worldoptical.at<float>(1, 3), T_camoptical_worldoptical.at<float>(2, 3)
         ));
-        transform_cam_world.setBasis(tf::Matrix3x3(
-           T_cam_world.at<float>(0, 0), T_cam_world.at<float>(0, 1), T_cam_world.at<float>(0, 2),
-           T_cam_world.at<float>(1, 0), T_cam_world.at<float>(1, 1), T_cam_world.at<float>(1, 2),
-           T_cam_world.at<float>(2, 0), T_cam_world.at<float>(2, 1), T_cam_world.at<float>(2, 2)   
+        transform_camoptical_worldoptical.setBasis(tf::Matrix3x3(
+           T_camoptical_worldoptical.at<float>(0, 0), T_camoptical_worldoptical.at<float>(0, 1), T_camoptical_worldoptical.at<float>(0, 2),
+           T_camoptical_worldoptical.at<float>(1, 0), T_camoptical_worldoptical.at<float>(1, 1), T_camoptical_worldoptical.at<float>(1, 2),
+           T_camoptical_worldoptical.at<float>(2, 0), T_camoptical_worldoptical.at<float>(2, 1), T_camoptical_worldoptical.at<float>(2, 2)   
         ));
     }
 
     try
     {
         mtfListener.lookupTransform(mStrCameraLinkId, mStrCameraOpticalFrameId, 
-                                    ros::Time(0), transform_camlink_cam);
+                                    ros::Time(0), transform_camlink_camoptical);
         
     }
     catch (tf::TransformException ex)
@@ -221,18 +231,15 @@ tf::StampedTransform ImageGrabber::broadcastTfs(cv::Mat T_cam_world)
     auto currentTrackingState = (eTrackingState)mpSLAM->GetTrackingState();
     if (mLastTrackingState != eTrackingState::OK && currentTrackingState == eTrackingState::OK)
     {
-        tf::StampedTransform transform_odom_base;
-        transform_odom_base.setIdentity();
+        tf::StampedTransform transform_odom_camoptical;
+        transform_odom_camoptical.setIdentity();
 
-        tf::StampedTransform transform_base_cam;
-        transform_base_cam.setIdentity();
-        
         try
         {
-            mtfListener.waitForTransform(mStrOdomFrameId, mStrBaseLinkFrameId,
+            mtfListener.waitForTransform(mStrOdomFrameId, mStrCameraOpticalFrameId,
                                       ros::Time::now(), ros::Duration(1.0));
-            mtfListener.lookupTransform(mStrOdomFrameId, mStrBaseLinkFrameId,
-                                        ros::Time(0), transform_odom_base);
+            mtfListener.lookupTransform(mStrOdomFrameId, mStrCameraOpticalFrameId,
+                                        ros::Time(0), transform_odom_camoptical);
         }
         catch (tf::TransformException ex)
         {
@@ -240,34 +247,21 @@ tf::StampedTransform ImageGrabber::broadcastTfs(cv::Mat T_cam_world)
             ROS_ERROR("%s", ex.what());
         }
 
-        try
-        {
-            mtfListener.waitForTransform(mStrBaseLinkFrameId, mStrCameraOpticalFrameId,
-                                      ros::Time::now(), ros::Duration(1.0));
-            mtfListener.lookupTransform(mStrBaseLinkFrameId, mStrCameraOpticalFrameId,  
-                                        ros::Time(0), transform_base_cam);
-        }
-        catch (tf::TransformException ex)
-        {
-
-            ROS_ERROR("%s", ex.what());
-        }
-
-        mTransform_odom_world = transform_odom_base * transform_base_cam * transform_cam_world;
+        mTransform_odom_world = transform_odom_camoptical * transform_camoptical_worldoptical * transform_camlink_camoptical.inverse();
     }
 
-    tf::Transform transform_world_camlink = transform_cam_world.inverse() * transform_camlink_cam.inverse();
-    // tf::StampedTransform stampedTransform_world_cam = tf::StampedTransform(
-    //     transform_world_camlink, ros::Time::now(), mStrWorldFrameId, mStrCameraFrameId
-    // );
+    tf::Transform transform_world_camlink = transform_camlink_camoptical * transform_camoptical_worldoptical.inverse() * 
+                                            transform_camlink_camoptical.inverse();
     tf::StampedTransform stampedTransform_world_cam = tf::StampedTransform(
-        transform_cam_world.inverse(), ros::Time::now(), mStrWorldFrameId, mStrCameraFrameId
+        transform_world_camlink, ros::Time::now(), mStrWorldFrameId, mStrCameraFrameId
     );
+
     mtfBroadcaster.sendTransform(stampedTransform_world_cam);
 
-    mtfBroadcaster.sendTransform(tf::StampedTransform(
-        mTransform_odom_world, ros::Time::now(), mStrOdomFrameId, mStrWorldFrameId
-    ));
+    // don't link the two orb frames and wheel odom frames, this is trouble some
+    // mtfBroadcaster.sendTransform(tf::StampedTransform(
+    //     mTransform_odom_world, ros::Time::now(), mStrOdomFrameId, mStrWorldFrameId
+    // ));
 
     return stampedTransform_world_cam;
 }
