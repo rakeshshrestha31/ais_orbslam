@@ -23,7 +23,8 @@ Camera.height: 480
 Camera.fps: 30.0
 
 # IR projector baseline times fx (aprox.)
-Camera.bf: 40.0
+# 0.059 * 622.2393798828125
+Camera.bf: 40 # 36.71212341308593
 
 # Color order of the images (0: BGR, 1: RGB. It is ignored if images are grayscale)
 Camera.RGB: 1
@@ -31,8 +32,8 @@ Camera.RGB: 1
 # Close/Far threshold. Baseline times.
 ThDepth: 40.0
 
-# Deptmap values factor 
-DepthMapFactor: 1.0
+# Deptmap values factor (should be 1 for rectified depth image, but isnt :( )
+DepthMapFactor: 1.125
 
 #--------------------------------------------------------------------------------------------
 # ORB Parameters

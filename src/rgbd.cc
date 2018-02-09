@@ -33,6 +33,13 @@
 #include <tf/transform_listener.h>
 #include <nav_msgs/Odometry.h>
 
+// PCL specific includes
+#include <sensor_msgs/PointCloud2.h>
+#include <pcl_conversions/pcl_conversions.h>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+#include <pcl_ros/point_cloud.h>
+
 #include <opencv2/core/core.hpp>
 
 #include "include/System.h"
@@ -43,9 +50,16 @@ class ImageGrabber
 {
 public:
     typedef ORB_SLAM2::Tracking::eTrackingState eTrackingState;
+    typedef pcl::PointCloud<pcl::PointXYZ> PointCloud;
+
     ImageGrabber(ORB_SLAM2::System* pSLAM, ros::NodeHandle nh);
 
+    /**
+     *
+     * @brief
+     */
     void GrabRGBD(const sensor_msgs::ImageConstPtr& msgRGB,const sensor_msgs::ImageConstPtr& msgD);
+    
     /**
      *
      * @brief
@@ -58,11 +72,18 @@ public:
      */
     void publishNavMsg(tf::StampedTransform current_world_cam);
 
+    /**
+     *
+     * @brief
+     */
+    void publishPointCloud();
+
 protected:
     ORB_SLAM2::System* mpSLAM;
 
     ros::NodeHandle mNodeHandler;
     ros::Publisher mOdomPublisher;
+    ros::Publisher mPointCloudPublisher;
     
     tf::TransformBroadcaster mtfBroadcaster;
     tf::TransformListener mtfListener;
@@ -130,19 +151,19 @@ ImageGrabber::ImageGrabber(ORB_SLAM2::System* pSLAM, ros::NodeHandle nh) :
 {
     ros::param::param<std::string>("~world_frame",      mStrWorldFrameId,       "orb_world");
     ros::param::param<std::string>("~camera_frame",     mStrCameraFrameId,      "orb_camera");
-    ros::param::param<std::string>("~baselink_frame",   mStrBaseLinkFrameId,    "base_footprint");
+    ros::param::param<std::string>("~baselink_frame",   mStrBaseLinkFrameId,    "base_link");
     ros::param::param<std::string>("~odom_frame",       mStrOdomFrameId,        "wheelodom");
 
     ros::param::param<std::string>("~cameralink_frame",         mStrCameraLinkId,           "camera_link");
     ros::param::param<std::string>("~cameraopticallink_frame",  mStrCameraOpticalFrameId,   "camera_rgb_optical_frame");
 
-    ros::param::param<double>("~pose_position_variance",        mnPosePositionVariance,     9.0);
-    ros::param::param<double>("~pose_orientation_variance",     mnPoseOrientationVariance,  9.0);
-    ros::param::param<double>("~twist_position_variance",       mnPosePositionVariance,     9999999.0);
-    ros::param::param<double>("~twist_orientation_variance",    mnPoseOrientationVariance,  9999999.0);
+    ros::param::param<double>("~pose_position_variance",        mnPosePositionVariance,     999.0);
+    ros::param::param<double>("~pose_orientation_variance",     mnPoseOrientationVariance,  999.0);
+    ros::param::param<double>("~twist_position_variance",       mnPosePositionVariance,     99999999.0);
+    ros::param::param<double>("~twist_orientation_variance",    mnPoseOrientationVariance,  99999999.0);
 
     mOdomPublisher = mNodeHandler.advertise<nav_msgs::Odometry>("visual_odom", 10);
-
+    mPointCloudPublisher = mNodeHandler.advertise<PointCloud> ("pointcloud", 1);
     mTransform_odom_world.setIdentity();
 }
 
@@ -174,13 +195,13 @@ void ImageGrabber::GrabRGBD(const sensor_msgs::ImageConstPtr& msgRGB,const senso
     cv::Mat T_cam_world = mpSLAM->TrackRGBD(cv_ptrRGB->image,cv_ptrD->image,cv_ptrRGB->header.stamp.toSec());
     auto currentTrackingState = (eTrackingState)mpSLAM->GetTrackingState();
     
-    if (currentTrackingState != eTrackingState::OK)
-    {
-        return;
-    }
     if (currentTrackingState == eTrackingState::LOST)
     {
         mpSLAM->Reset();
+        return;
+    }
+    if (currentTrackingState != eTrackingState::OK)
+    {
         return;
     }
 
@@ -190,6 +211,7 @@ void ImageGrabber::GrabRGBD(const sensor_msgs::ImageConstPtr& msgRGB,const senso
     if (mLastTrackingState == eTrackingState::OK && currentTrackingState == eTrackingState::OK)
     {
         publishNavMsg(stampedTransform_world_cam);
+        // publishPointCloud();
     }
 
     mStampedTransform_world_cam = stampedTransform_world_cam;
@@ -229,34 +251,37 @@ tf::StampedTransform ImageGrabber::broadcastTfs(cv::Mat T_camoptical_worldoptica
 
     // when there is transition from not okay to okay, get the current odometry tf to set the coordinate frame of the map
     auto currentTrackingState = (eTrackingState)mpSLAM->GetTrackingState();
-    if (mLastTrackingState != eTrackingState::OK && currentTrackingState == eTrackingState::OK)
-    {
-        tf::StampedTransform transform_odom_camoptical;
-        transform_odom_camoptical.setIdentity();
+    // if (mLastTrackingState != eTrackingState::OK && currentTrackingState == eTrackingState::OK)
+    // {
+    //     tf::StampedTransform transform_odom_camoptical;
+    //     transform_odom_camoptical.setIdentity();
 
-        try
-        {
-            mtfListener.waitForTransform(mStrOdomFrameId, mStrCameraOpticalFrameId,
-                                      ros::Time::now(), ros::Duration(1.0));
-            mtfListener.lookupTransform(mStrOdomFrameId, mStrCameraOpticalFrameId,
-                                        ros::Time(0), transform_odom_camoptical);
-        }
-        catch (tf::TransformException ex)
-        {
+    //     try
+    //     {
+    //         mtfListener.waitForTransform(mStrOdomFrameId, mStrCameraOpticalFrameId,
+    //                                   ros::Time::now(), ros::Duration(1.0));
+    //         mtfListener.lookupTransform(mStrOdomFrameId, mStrCameraOpticalFrameId,
+    //                                     ros::Time(0), transform_odom_camoptical);
+    //     }
+    //     catch (tf::TransformException ex)
+    //     {
 
-            ROS_ERROR("%s", ex.what());
-        }
+    //         ROS_ERROR("%s", ex.what());
+    //     }
 
-        mTransform_odom_world = transform_odom_camoptical * transform_camoptical_worldoptical * transform_camlink_camoptical.inverse();
-    }
+    //     mTransform_odom_world = transform_odom_camoptical * transform_camoptical_worldoptical * transform_camlink_camoptical.inverse();
+    // }
 
     tf::Transform transform_world_camlink = transform_camlink_camoptical * transform_camoptical_worldoptical.inverse() * 
                                             transform_camlink_camoptical.inverse();
     tf::StampedTransform stampedTransform_world_cam = tf::StampedTransform(
         transform_world_camlink, ros::Time::now(), mStrWorldFrameId, mStrCameraFrameId
     );
+    // mtfBroadcaster.sendTransform(stampedTransform_world_cam);
 
-    mtfBroadcaster.sendTransform(stampedTransform_world_cam);
+    // mtfBroadcaster.sendTransform(tf::StampedTransform(
+    //     transform_camlink_camoptical.inverse(), ros::Time::now(), mStrWorldFrameId, mStrWorldFrameId + std::string("_optical")
+    // ));
 
     // don't link the two orb frames and wheel odom frames, this is trouble some
     // mtfBroadcaster.sendTransform(tf::StampedTransform(
@@ -270,8 +295,8 @@ void ImageGrabber::publishNavMsg(tf::StampedTransform stampedTransform_world_cam
 {
     nav_msgs::Odometry odom_msg;
     odom_msg.header.stamp = ros::Time::now();
-    odom_msg.header.frame_id = mStrWorldFrameId;
-    odom_msg.child_frame_id = mStrCameraFrameId;
+    odom_msg.header.frame_id = mStrCameraFrameId;
+    odom_msg.child_frame_id = mStrBaseLinkFrameId;
     
     auto position = stampedTransform_world_cam.getOrigin();
     auto orientation = stampedTransform_world_cam.getRotation();
@@ -331,3 +356,36 @@ void ImageGrabber::publishNavMsg(tf::StampedTransform stampedTransform_world_cam
 }
 
 
+void ImageGrabber::publishPointCloud()
+{
+    try 
+    {
+        PointCloud::Ptr msg(new PointCloud);
+        msg->header.frame_id = mStrWorldFrameId + std::string("_optical");
+        pcl_conversions::toPCL(ros::Time::now(), msg->header.stamp);
+        msg->height = msg->width = 1;
+
+        auto mapPoints = mpSLAM->GetTrackedMapPoints();
+        for (auto &point: mapPoints)
+        {
+            if (!point)
+            {
+                continue;
+            }
+            auto coord = point->GetWorldPos();
+            
+            msg->points.push_back(pcl::PointXYZ(
+                coord.at<float>(0),
+                coord.at<float>(1),
+                coord.at<float>(2)
+            ));
+        }
+        ROS_DEBUG("publishing %d clouds", msg->points.size());
+        mPointCloudPublisher.publish(msg);
+    }
+    catch(std::runtime_error& ex) 
+    {
+        ROS_ERROR("Exception: [%s]", ex.what());
+    }
+
+}

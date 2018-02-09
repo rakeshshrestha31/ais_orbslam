@@ -13,6 +13,7 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   sensor_msgs
   tf
+  pcl_ros
 )
 
 set(ORB_PATH $ENV{ORB_PATH})
@@ -31,6 +32,8 @@ if(NOT OpenCV_FOUND)
       message(FATAL_ERROR "OpenCV > 2.4.3 not found.")
    endif()
 endif()
+message(WARNING "OPENCV: ${OpenCV_FOUND}, ${OpenCV_LIBRARIES}, ${OpenCV_INCLUDE_DIRS}")
+message(WARNING "CATKIN: ${catkin_LIBRARIES}")
 
 find_package(Eigen3 3.1.0 REQUIRED)
 find_package(Pangolin REQUIRED)
@@ -42,10 +45,11 @@ include_directories(
 	${ORB_PATH}
 	${ORB_PATH}/include
 	${Pangolin_INCLUDE_DIRS}
+	${OpenCV_INCLUDE_DIRS}
 )
 
 set(LIBS 
-	${OpenCV_LIBS} 
+	# ${OpenCV_LIBRARIES} # comes from catkin
 	${EIGEN3_LIBS}
 	${Pangolin_LIBRARIES}
 	${ORB_PATH}/Thirdparty/DBoW2/lib/libDBoW2.so

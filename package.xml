@@ -60,7 +60,7 @@
   <build_export_depend>sensor_msgs</build_export_depend>
   <build_export_depend>nav_msgs</build_export_depend>
   <build_export_depend>tf</build_export_depend>
-  <build_export_depend>tf</build_export_depend>
+  <build_export_depend>libpcl-all-dev</build_export_depend>
 
   <exec_depend>cv_bridge</exec_depend>
   <exec_depend>image_transport</exec_depend>
@@ -68,6 +68,7 @@
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>nav_msgs</exec_depend>
   <exec_depend>tf</exec_depend>
+  <exec_depend>libpcl-all</exec_depend>
 
 
   <!-- The export tag contains other, unspecified, tags -->
