@@ -122,7 +122,7 @@ int main(int argc, char **argv)
     }    
 
     // Create SLAM system. It initializes all system threads and gets ready to process frames.
-    ORB_SLAM2::System SLAM(argv[1],argv[2],ORB_SLAM2::System::RGBD,true);
+    ORB_SLAM2::System SLAM(argv[1],argv[2],ORB_SLAM2::System::RGBD,false);
 
     ros::NodeHandle nh("~");
     ImageGrabber igb(&SLAM, nh);
@@ -139,7 +139,7 @@ int main(int argc, char **argv)
     SLAM.Shutdown();
 
     // Save camera trajectory
-    SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");
+    // SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");
 
     ros::shutdown();
 
@@ -159,8 +159,8 @@ ImageGrabber::ImageGrabber(ORB_SLAM2::System* pSLAM, ros::NodeHandle nh) :
 
     ros::param::param<double>("~pose_position_variance",        mnPosePositionVariance,     999.0);
     ros::param::param<double>("~pose_orientation_variance",     mnPoseOrientationVariance,  999.0);
-    ros::param::param<double>("~twist_position_variance",       mnPosePositionVariance,     99999999.0);
-    ros::param::param<double>("~twist_orientation_variance",    mnPoseOrientationVariance,  99999999.0);
+    ros::param::param<double>("~twist_position_variance",       mnTwistPositionVariance,     1e7);
+    ros::param::param<double>("~twist_orientation_variance",    mnTwistOrientationVariance,  1e7);
 
     mOdomPublisher = mNodeHandler.advertise<nav_msgs::Odometry>("visual_odom", 10);
     mPointCloudPublisher = mNodeHandler.advertise<PointCloud> ("pointcloud", 1);
@@ -280,10 +280,14 @@ tf::StampedTransform ImageGrabber::broadcastTfs(cv::Mat T_camoptical_worldoptica
     // mtfBroadcaster.sendTransform(stampedTransform_world_cam);
 
     // mtfBroadcaster.sendTransform(tf::StampedTransform(
-    //     transform_camlink_camoptical.inverse(), ros::Time::now(), mStrWorldFrameId, mStrWorldFrameId + std::string("_optical")
+    //     transform_camoptical_worldoptical.inverse(), ros::Time::now(), mStrCameraFrameId, mStrWorldFrameId + std::string("_optical")
     // ));
 
-    // don't link the two orb frames and wheel odom frames, this is trouble some
+    // mtfBroadcaster.sendTransform(tf::StampedTransform(
+    //     transform_camoptical_worldoptical.inverse(), ros::Time::now(), mStrCameraFrameId, mStrCameraOpticalFrameId
+    // ));
+
+    // don't link the two orb frames and wheel odom frames, this is troublesome
     // mtfBroadcaster.sendTransform(tf::StampedTransform(
     //     mTransform_odom_world, ros::Time::now(), mStrOdomFrameId, mStrWorldFrameId
     // ));
@@ -308,6 +312,13 @@ void ImageGrabber::publishNavMsg(tf::StampedTransform stampedTransform_world_cam
     odom_msg.pose.pose.orientation.y = orientation.getY();
     odom_msg.pose.pose.orientation.z = orientation.getZ();
     odom_msg.pose.pose.orientation.w = orientation.getW();
+
+    if (fabs(position.getX()) < 1e-3 &&
+        fabs(position.getY()) < 1e-3 &&
+        fabs(position.getZ()) < 1e-3)
+    {
+        return;
+    }
 
     // TODO: covariances
 
