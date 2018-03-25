@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>VO_ORB</name>
+  <name>vo_orb</name>
   <version>0.0.0</version>
   <description>The VO_ORB package</description>
 
