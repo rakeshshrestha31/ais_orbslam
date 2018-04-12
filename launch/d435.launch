@@ -1,5 +1,6 @@
 <launch>
   <node pkg="tf" type="static_transform_publisher" name="camera_fake_localize" args="0.08 -0.05 0.14 0 0 0 base_laser_link orb_camera 20"/>
+  <include file="$(find realsense2_camera)/launch/rs_rgbd.launch" />
   <node pkg="vo_orb" type="vo_orb_rgbd" name="ORB2_RGBD" args="$(env ORB_PATH)/Vocabulary/ORBvoc.txt $(find vo_orb)/config/d435.yaml">
     
     <remap from="/camera/rgb/image_raw" to="/camera/color/image_raw" />
