@@ -198,10 +198,12 @@ void ImageGrabber::GrabRGBD(const sensor_msgs::ImageConstPtr& msgRGB,const senso
     if (currentTrackingState == eTrackingState::LOST)
     {
         mpSLAM->Reset();
+	ROS_DEBUG_NAMED("ORB2_RGBD", "TRACKING LOST. RESETTING...");
         return;
     }
     if (currentTrackingState != eTrackingState::OK)
     {
+	ROS_DEBUG_NAMED("ORB2_RGBD", "TRACKING STATE NOT OKAY");
         return;
     }
 
